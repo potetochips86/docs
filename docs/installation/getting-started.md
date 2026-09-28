@@ -6,7 +6,7 @@ Run every command from a **bootstrap host** that can reach the nodes (typically 
 
 ## Prerequisites
 
-- **talosctl** ([CLI reference](https://www.talos.dev/latest/reference/cli/)), **Helm** ([install](https://helm.sh/docs/intro/install/)), and **kubectl**
+- **talosctl** ([CLI reference](https://www.talos.dev/latest/reference/cli/)), **Helm** ([install](https://helm.sh/docs/intro/install/)), **kubectl**, and **curl**
 - **Talos 1.12.6 or older** — newer versions hit a Linux kernel bug that breaks the SDN. Superphenix is **only officially supported on Talos**.
 - An **IPv4 range on the network behind the external interface**. Superphenix picks addresses from that subnet at random and assigns them to **NAT gateways** and **elastic IPs**. If the subnet is shared with node addresses or other devices, those IPs can be excluded from the IPAM. Ideally, reserve the whole range (or a dedicated part of it) for Superphenix.
 - A **domain name** for the console. The cluster serves HTTP(S) on **every node** on ports **80** and **443**, so DNS only needs to point at **one** node. For HA, use a load balancer or DNS round-robin.
@@ -180,8 +180,10 @@ clusters:
 
 Install the **superphenix-operator** on the Talos cluster using Helm:
 ```bash
+OPERATOR_VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/super-phenix/superphenix/releases/latest | sed 's#.*/v##')"
+
 helm install superphenix-operator \
-  oci://ghcr.io/super-phenix/charts/superphenix-operator:0.7.0 \
+  "oci://ghcr.io/super-phenix/charts/superphenix-operator:${OPERATOR_VERSION}" \
   --namespace superphenix-system \
   --create-namespace \
   -f values.yaml
