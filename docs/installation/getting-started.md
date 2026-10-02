@@ -46,6 +46,7 @@ Edit `controlplane.yaml` **before** you apply it. Superphenix installs the CNI a
       controllerManager:
         extraArgs:
           feature-gates: "MutatingAdmissionPolicy=true"
+          node-cidr-mask-size-ipv6: "112"
       apiServer:
         extraArgs:
           feature-gates: "MutatingAdmissionPolicy=true"
