@@ -17,7 +17,7 @@ Part of the [deployment guide](../index.md). For the automated alternative, see 
 
 Before you start, confirm:
 
-- **Hardware and network** meet the profile for your topology: see [Hardware requirements](../../../architecture/deployment-requirements.md) and [Network requirements](../../../architecture/network-requirements.md).
+- **Hardware and network** meet the profile for your topology: see [Hardware requirements](../../../architecture/hardware-requirements.md) and [Network requirements](../../../architecture/network-requirements.md).
 - **Deployment topology** is chosen (hyperconverged vs decoupled, management in vs out): see [Deployment topology](../../../architecture/deployment-topology.md).
 - **`talosctl`** ([CLI reference](https://www.talos.dev/latest/reference/cli/)) and **`kubectl`** on your workstation.
 - **Talos 1.12.6 or older** installer media (ISO, PXE, or disk image).
