@@ -19,8 +19,10 @@ Choosing how you make your GPUs available will determine the way you configure y
 ### `Container`
 - Include the **NVIDIA OSS drivers** in your Talos installation image;
 - Expose the GPU hardware to your overlaying Kubernetes cluster by deploying either:
-    - the NVIDIA **gpu-operator** (more features, extra components, supports all 3 modes, but needs a patch to work with Talos in container mode)
-    - or the NVIDIA **k8s-device-plugin** (fewer features, container mode only, works out of the box).
+    - the NVIDIA **k8s-device-plugin** (fewer features, container mode only, works out of the box)
+    - or the NVIDIA **gpu-operator** (more features, extra components, supports all 3 modes, but needs a patch to work with Talos in container mode).
+
+This guide covers the **Device Plugin** variant for container mode.
 
 ### `VM-Passthrough`
 - Configure the **OS** and **rebind drivers**;
@@ -28,7 +30,8 @@ Choosing how you make your GPUs available will determine the way you configure y
 - Configure the **Kubevirt** CRD to set your GPUs as permitted devices.
 
 ### `vGPU`
-- This section is a work in progress.
+- Similar to `VM-Passthrough`, but includes the building and hosting of your own NVIDIA vGPU image; requires an **NVIDIA Enterprise account** with a subscription and license.
+- Support for the Talos operating system is unknown; this section is still in development.
 
 
 ## 1. Talos with Container workloads
@@ -37,13 +40,11 @@ Choosing how you make your GPUs available will determine the way you configure y
       - `nvidia-open-gpu-kernel-modules`
       - `nvidia-container-toolkit`
   
-    You can do so either during installation, or through an Image Factory schematic upgrade:
-    ```sh
-    talosctl --talosconfig talosconfig upgrade -n <node-IP> --image ghcr.io/siderolabs/<schematic>:v1.12.6
-    ```
+    You can do so either during installation, or through an Image Factory schematic upgrade.
 
-2. Apply this patch to the Talos machine configuration of your GPU node(s):
+2. Apply this patch to your GPU node's Talos machine configuration:
     ```yaml
+    # Talos machine configuration patch
     machine:
       kernel:
         modules:
@@ -55,32 +56,7 @@ Choosing how you make your GPUs available will determine the way you configure y
         net.core.bpf_jit_harden: 1
     ```
 
-
-### Step 2a: Deploy the NVIDIA gpu-operator (TBA)
-1. Label your GPU node:
-    ```sh
-    kubectl label node <node-name> --overwrite nvidia.com/gpu.workload.config=container
-    ```
-2. Create the `gpu-operator` namespace and set its Pod Security to `privileged`:
-    ```sh
-    kubectl create ns gpu-operator
-    kubectl label --overwrite ns gpu-operator pod-security.kubernetes.io/enforce=privileged
-    ```
-3. Add the NVIDIA Helm repository and update it:
-    ```sh
-    helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
-    helm repo update
-    ```
-4. Install the GPU Operator:
-    ```sh
-    helm upgrade --wait --install -n gpu-operator gpu-operator nvidia/gpu-operator \
-      --set driver.enabled=false \
-      --set toolkit.enabled=false \
-      --set hostPaths.driverInstallDir=/var/nvidia-driver
-    ```
-5. Apply the compatibility patch (TBA)
-
-### Step 2b: Deploy the NVIDIA k8s-device-plugin
+### Step 2: Deploy the NVIDIA k8s-device-plugin
 1. Create a RuntimeClass that will allow pods to use the Talos NVIDIA extensions:
     ```yaml
     apiVersion: node.k8s.io/v1
@@ -97,12 +73,12 @@ Choosing how you make your GPUs available will determine the way you configure y
 3. Install the NVIDIA Device Plugin:
     ```sh
     helm install nvidia-device-plugin nvdp/nvidia-device-plugin \
-      --version=0.13.0 \
       --set=runtimeClassName=nvidia
     ```
-Your GPU hardware should now be visible inside your Kubernetes cluster in the form of allocatable `nvidia.com/gpu` resources in GPU node manifests.
 
-You can test the RuntimeClass by running the following command:
+Your GPU hardware should now be visible inside your Kubernetes cluster in the form of allocatable `nvidia.com/gpu` resources.
+
+You can test the RuntimeClass by running the following **CUDA test pod**:
 ```sh
 kubectl run \
   nvidia-test \
@@ -116,21 +92,42 @@ kubectl run \
 
 ## 2. Talos with VM-Passthrough workloads
 ### Step 1: Configure the Talos OS
-- Enable **IOMMU** and **SVM Mode** in the BIOS
-  - On an AMD CPU:
-    - `Advanced > AMD CBS > NBIO Common Options > IOMMU/Security > Enable`
-    - `Advanced > CPU Configuration > SVM Mode > Enable`
-- Set the `iommu=pt` kernel parameter, either during installation or through an Image Factory schematic upgrade:
-  ```sh
-  talosctl --talosconfig talosconfig upgrade -n <node-IP> --image ghcr.io/siderolabs/<schematic>:v1.12.6
-  ```
+- Enable **IOMMU** and **SVM Mode** in the BIOS:
+    - On an AMD CPU:
+        - `Advanced > AMD CBS > NBIO Common Options > IOMMU/Security > Enable`
+        - `Advanced > CPU Configuration > SVM Mode > Enable`
+- Set the `iommu=pt` **kernel parameter**, either during installation or through an Image Factory schematic upgrade. Get the image either:
+    - From the web UI, following the on-screen instructions : [Talos Image Factory](https://factory.talos.dev/)
+    - Or from the terminal:
+        - Create a `customization.yaml` schematic file containing your extra kernel arguments:
+          ```yaml
+          customization:
+            extraKernelArgs:
+              - iommu=pt
+          ```
+        - Query the Image Factory to get an ID for your customization:
+          ```sh
+          curl -X POST --data-binary @customization.yaml https://factory.talos.dev/schematics
+          # Returns a schematic ID
+          ```
+    - Then apply the image through an upgrade:
+      ```sh
+      talosctl --talosconfig talosconfig -n <node-IP> upgrade --image factory.talos.dev/metal-installer/<schematic-ID>:<Talos-version>
+      ```
+    - Patch your node's machine configuration to include the correct image:
+      ```yaml
+      # Talos machine configuration patch
+      machine:
+        install:
+          image: factory.talos.dev/metal-installer/<schematic-ID>:<Talos-version>
+      ```
 
 ### Step 2: Rebind all GPU devices to the `vfio-pci` driver
-- List all NVIDIA GPU PCI devices and note their IDs down:
+1. List all NVIDIA GPU **PCI devices** and note their IDs down:
   ```sh
   talosctl --talosconfig talosconfig -n <node-IP> get pcidevices | grep NVIDIA
   ```
-- Create a patch file containing a **PCIDriverRebindConfig** for each GPU device, using their ID as name:
+2. Create a patch file containing a **PCIDriverRebindConfig** for each GPU device, using their ID as name:
   ```yaml
   apiVersion: v1alpha1
   kind: PCIDriverRebindConfig
@@ -143,12 +140,21 @@ kubectl run \
   targetDriver: vfio-pci
   # etc...
   ```
-- Apply the patch to the node.
+3. Include the following modules in the node's machine configuration:
+  ```yaml
+  # Talos machine configuration patch
+  machine:
+    kernel:
+      modules:
+        - name: vfio_pci
+        - name: vfio_iommu_type1
+  ```
+4. Apply both patches to the node.
 
 ### Step 3: Deploy the NVIDIA gpu-operator
-1. Label your GPU node:
+1. Label your GPU node for `vm-passthrough` mode:
     ```sh
-    kubectl label node <node-name> --overwrite nvidia.com/gpu.workload.config=container
+    kubectl label node <node-name> --overwrite nvidia.com/gpu.workload.config=vm-passthrough
     ```
 2. Create the `gpu-operator` namespace and set its Pod Security to `privileged`:
     ```sh
@@ -186,10 +192,16 @@ spec:
         resourceName: "nvidia.com/GB202GL_RTX_PRO_6000_BLACKWELL_SERVER_EDITION"
 ```
 
-You can now provision GPU resources in your VMs.
+Read more about the different fields in the official [Kubevirt documentation](https://kubevirt.io/user-guide/compute/host-devices/#listing-permitted-devices).
+
+You can now give GPUs to your VMs. Proceed with installing the necessary drivers **inside your VM** to take full advantage of your GPU devices.
+
+!!! warning "About live-migration"
+    Bear in mind that Kubevirt VMs using PCI host devices (in our case, passthrough GPUs) **cannot be live-migrated**.
+
 
 ## 3. Talos with vGPU workloads
-This section is a work in progress.
+NVIDIA vGPU support for the Talos operating system is unknown; this section is still in development.
 
 
 ## Relevant documentation
